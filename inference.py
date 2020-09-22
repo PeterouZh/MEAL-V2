@@ -19,6 +19,9 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import timm
 
+from template_lib.v2.config import update_parser_defaults_from_yaml
+
+
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
@@ -81,6 +84,8 @@ best_acc1 = 0
 
 
 def main():
+
+    update_parser_defaults_from_yaml(parser)
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -204,6 +209,20 @@ def main_worker(gpu, ngpus_per_node, args):
     # normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5],
     #                                  std=[0.5, 0.5, 0.5])
 
+    val_loader = torch.utils.data.DataLoader(
+        datasets.ImageFolder(valdir, transforms.Compose([
+            transforms.Resize(int(256 / 224 * args.res)),
+            transforms.CenterCrop(args.res),
+            transforms.ToTensor(),
+            normalize,
+        ])),
+        batch_size=args.batch_size, shuffle=False,
+        num_workers=args.workers, pin_memory=True)
+
+    if args.evaluate:
+        validate(val_loader, model, criterion, args)
+        return
+
     train_dataset = datasets.ImageFolder(
         traindir,
         transforms.Compose([
@@ -221,20 +240,6 @@ def main_worker(gpu, ngpus_per_node, args):
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-
-    val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Resize(int(256/224*args.res)),
-            transforms.CenterCrop(args.res),
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=True)
-
-    if args.evaluate:
-        validate(val_loader, model, criterion, args)
-        return
 
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
