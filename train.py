@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Script to train a model through soft labels on ImageNet's train set."""
 
+import collections
 import argparse
 import logging
 import pprint
@@ -19,6 +20,9 @@ from models import discriminator
 import opts
 import test
 import utils
+
+from template_lib.v2.config import update_parser_defaults_from_yaml, global_cfg
+from template_lib.v2.logger import global_textlogger, summary_defaultdict2txtfig
 
 
 def parse_args(argv):
@@ -40,6 +44,7 @@ def parse_args(argv):
     group = parser.add_argument_group('Training Options')
     opts.add_training_flags(group)
 
+    update_parser_defaults_from_yaml(parser)
     args = parser.parse_args(argv)
 
     # if args.teacher_model is not None and args.teacher_state_file is None:
@@ -169,6 +174,20 @@ def train_for_one_epoch(model, g_loss, discriminator_loss, train_loader, optimiz
                     batch_time=batch_time_meter, data_time=data_time_meter,
                     g_loss=g_loss_meter, d_loss=d_loss_meter, top1=top1_meter, top5=top5_meter,
                     lr=_get_learning_rate(optimizer)))
+            summary_dd = collections.defaultdict(dict)
+            summary_dd['batch_time']['batch_time'] = batch_time_meter.value
+            summary_dd['data_time']['data_time'] = data_time_meter.value
+            summary_dd['GAN']['G_Loss'] = g_loss_meter.average_recent
+            summary_dd['GAN']['D_Loss'] = d_loss_meter.average_recent
+            summary_dd['top1']['top1'] = top1_meter.average_recent
+            summary_dd['top5']['top5'] = top5_meter.average_recent
+            summary_dd['LR']['LR'] = _get_learning_rate(optimizer)
+            summary_defaultdict2txtfig(default_dict=summary_dd, prefix='train',
+                                       step=(epoch_number - 1) * len(train_loader) + i, textlogger=global_textlogger)
+        if getattr(global_cfg, 'train_dummy', False):
+            break
+
+
     # Log the overall train stats
     logging.info(
         'Epoch: [{epoch}] -- TRAINING SUMMARY\t'
@@ -209,14 +228,16 @@ def create_discriminator_criterion(args):
 def main(argv):
     """Run the training script with command line arguments @argv."""
     args = parse_args(argv)
+    args.batch_size = args.batch_size * len(os.environ['CUDA_VISIBLE_DEVICES'].split(','))
+    args.num_workers = args.num_workers * len(os.environ['CUDA_VISIBLE_DEVICES'].split(','))
     utils.general_setup(args.save, args.gpus)
 
     logging.info("Arguments parsed.\n{}".format(pprint.pformat(vars(args))))
 
     # Create the train and the validation data loaders.
-    train_loader = imagenet.get_train_loader(args.imagenet, args.batch_size,
+    train_loader = imagenet.get_train_loader(global_cfg.train_dataset_dir, args.batch_size,
                                              args.num_workers, args.image_size)
-    val_loader = imagenet.get_val_loader(args.imagenet, args.batch_size,
+    val_loader = imagenet.get_val_loader(global_cfg.val_dataset_dir, args.batch_size,
                                          args.num_workers, args.image_size)
     # Create model with optional teachers.
     model, loss = model_factory.create_model(
@@ -234,12 +255,14 @@ def main(argv):
     # Train and test for needed number of epochs.
     optimizer = create_optimizer(model, update_parameters, args.momentum, args.weight_decay)
 
+    best_top1 = 0.
     for epoch in range(args.start_epoch, args.epochs):
         lr = regime.get_lr(epoch)
         _set_learning_rate(optimizer, lr)
         train_for_one_epoch(model, loss, discriminator_loss, train_loader, optimizer, epoch)
-        test.test_for_one_epoch(model, loss, val_loader, epoch)
-        save_checkpoint(args.save, model, optimizer, epoch)
+        val_top1 = test.test_for_one_epoch(model, loss, val_loader, epoch)
+        if val_top1 > best_top1:
+            save_checkpoint(args.save, model, optimizer, epoch=0)
 
 
 if __name__ == '__main__':

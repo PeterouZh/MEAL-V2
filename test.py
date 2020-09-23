@@ -15,6 +15,9 @@ from models import model_factory
 import opts
 import utils
 
+from template_lib.v2.config import global_cfg
+from template_lib.v2.logger import global_textlogger, summary_defaultdict2txtfig, summary_dict2txtfig
+
 
 def parse_args(argv):
     """Parse arguments @argv and return the flags needed for training."""
@@ -91,6 +94,8 @@ def test_for_one_epoch(model, loss, test_loader, epoch_number):
                 epoch=epoch_number, batch=i + 1, epoch_size=len(test_loader),
                 batch_time=batch_time_meter, data_time=data_time_meter,
                 loss=loss_meter, top1=top1_meter, top5=top5_meter))
+        if getattr(global_cfg, 'val_dummy', False):
+            break
     # Log the overall test stats
     logging.info(
         'Epoch: [{epoch}] -- TESTING SUMMARY\t'
@@ -101,6 +106,14 @@ def test_for_one_epoch(model, loss, test_loader, epoch_number):
         'Top-5 {top5.average:.2f}    '.format(
             epoch=epoch_number, batch_time=batch_time_meter, data_time=data_time_meter,
             loss=loss_meter, top1=top1_meter, top5=top5_meter))
+    summary_d = {}
+    summary_d['batch_time_meter'] = batch_time_meter.sum
+    summary_d['data_time_meter'] = data_time_meter.sum
+    summary_d['loss_meter'] = loss_meter.average
+    summary_d['top1_meter'] = top1_meter.average
+    summary_d['top5_meter'] = top5_meter.average
+    summary_dict2txtfig(dict_data=summary_d, prefix='val', step=epoch_number, textlogger=global_textlogger)
+    return top1_meter.average
 
 
 def main(argv):

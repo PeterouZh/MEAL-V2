@@ -34,7 +34,7 @@ class ImageNet(torch_datasets.ImageFolder):
 
     def __init__(self, root_dir, im_size, is_train):
         if is_train:
-            root_dir = os.path.join(root_dir, 'train')
+            # root_dir = os.path.join(root_dir, 'train')
             transform = transforms.Compose([
                 transforms.RandomResizedCrop(im_size),
                 transforms.RandomHorizontalFlip(),
@@ -42,7 +42,7 @@ class ImageNet(torch_datasets.ImageFolder):
                 transforms.Normalize(ImageNet.MEAN, ImageNet.STD),
             ])
         else:
-            root_dir = os.path.join(root_dir, 'val')
+            # root_dir = os.path.join(root_dir, 'val')
             transform = transforms.Compose([
                 transforms.Resize(int(256/224*im_size)),
                 transforms.CenterCrop(im_size),
